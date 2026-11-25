@@ -215,7 +215,10 @@ def seed_catalog(db: Session) -> dict[str, list[InventoryUnit]]:
             db.add(product)
             db.flush()
             log.info("  + product %s", name)
-        if product.image_path is None:
+        # Create the placeholder when the product has no image, or when its seed image file is
+        # missing from disk (for example a fresh uploads volume). Admin-uploaded images are left alone.
+        seed_image = f"products/seed-{slug}.png"
+        if product.image_path is None or (product.image_path == seed_image and not (upload_dir / seed_image).exists()):
             product.image_path = make_placeholder_image(upload_dir, slug, name, brand, colors[category_slug])
 
         units = []

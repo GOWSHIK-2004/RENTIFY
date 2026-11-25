@@ -1,5 +1,8 @@
-# Local PostgreSQL for development only. The FastAPI app and the React app
-# run directly on the host; only the database runs in a container.
+# Runs the whole Rentify stack:   docker compose up --build
+#   web     React app         http://localhost:5173
+#   api     FastAPI backend   http://localhost:8000  (Swagger UI at /docs)
+#   db      PostgreSQL        localhost:5432
+# Secrets come from a .env file next to this one (see .env.example).
 services:
   db:
     image: postgres:16-alpine
@@ -9,7 +12,7 @@ services:
       POSTGRES_PASSWORD: rentify_dev_password
       POSTGRES_DB: rentify
     ports:
-      - "5432:5432"
+      - "5432:5432" # published so you can also run the API or pytest directly on your machine
     volumes:
       - rentify_pgdata:/var/lib/postgresql/data
       # Creates the separate rentify_test database on first start.
@@ -20,5 +23,45 @@ services:
       timeout: 3s
       retries: 10
 
+  api:
+    build: ./backend
+    container_name: rentify-api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # "db" is the database service's hostname on the Compose network.
+      DATABASE_URL: postgresql+psycopg://rentify:rentify_dev_password@db:5432/rentify
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (see .env.example)}
+      ACCESS_TOKEN_EXPIRE_MINUTES: 60
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?Set ADMIN_EMAIL in .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      FRONTEND_ORIGIN: http://localhost:5173
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+    ports:
+      - "8000:8000"
+    volumes:
+      - rentify_uploads:/app/uploads # uploaded product images survive container rebuilds
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        # Called by the browser, so it is the address as seen from your machine.
+        VITE_API_BASE_URL: http://localhost:8000/api/v1
+    container_name: rentify-web
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "5173:5173"
+
 volumes:
   rentify_pgdata:
+  rentify_uploads:

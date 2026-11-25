@@ -48,7 +48,7 @@ physical cameras of that model), and **bookings** that reserve one unit for a da
 | Backend | Python, FastAPI, Uvicorn, Pydantic 2, SQLAlchemy 2 (sync), Alembic, Psycopg 3, PyJWT, Argon2 |
 | Database | PostgreSQL 16 |
 | Tests | Pytest, FastAPI `TestClient` |
-| Local DB | Docker Compose, for the **database only** |
+| Containers | Docker Compose runs the database, API and web app together |
 
 ## Architecture
 
@@ -80,7 +80,8 @@ Full diagram with columns, constraints, indexes and example SQL: [docs/DATABASE.
 
 ```
 RENTIFY/
-  docker-compose.yml          local PostgreSQL (+ a separate test database)
+  docker-compose.yml          runs db + api + web (and a separate test database)
+  .env.example                secrets for docker compose
   README.md
   docs/
     ARCHITECTURE.md  DATABASE.md  CODEBASE_GUIDE.md
@@ -97,33 +98,81 @@ RENTIFY/
     tests/       pytest suite
     uploads/     uploaded product images (git-ignored)
     seed.py      demo data
-    requirements.txt  .env.example
+    requirements.txt  .env.example  Dockerfile  docker-entrypoint.sh
   frontend/
     src/
       api/ components/ contexts/ hooks/ layouts/ utils/
       pages/customer  pages/auth  pages/admin
-    package.json  package-lock.json  vite.config.js
+    package.json  package-lock.json  vite.config.js  Dockerfile
 ```
 
 New to the code? Start with [docs/CODEBASE_GUIDE.md](docs/CODEBASE_GUIDE.md).
 
-## Local installation
+## Running with Docker (recommended)
 
-**Prerequisites:** Python 3.11+ (developed on 3.11; 3.12 also fine), Node.js 20+, and Docker (only to run PostgreSQL).
-Commands below are for a Unix-style shell; on Windows PowerShell see the notes after each block.
-
-### 1. Start PostgreSQL
+**Prerequisite:** Docker with Compose. Nothing else (Python, Node, PostgreSQL) needs to be installed.
 
 ```bash
-docker compose up -d
+cp .env.example .env        # Windows PowerShell: Copy-Item .env.example .env
+# edit .env: set JWT_SECRET (32+ characters) and ADMIN_PASSWORD
+docker compose up --build
 ```
 
-This starts PostgreSQL 16 on port 5432 with database `rentify` for the app and `rentify_test` for the tests
-(user `rentify`, password `rentify_dev_password`: development only). Data persists in a Docker volume.
+| Service | URL |
+|---|---|
+| Web app | http://localhost:5173 |
+| API | http://localhost:8000 |
+| Swagger UI | http://localhost:8000/docs |
+| PostgreSQL | localhost:5432 (user `rentify`, password `rentify_dev_password`: development only) |
 
-Prefer your own PostgreSQL? Create two databases yourself and put their URLs in `backend/.env` (next step).
+On start the `api` container applies the Alembic migrations and, because `SEED_DEMO_DATA=true`, loads the demo
+data (idempotent, so restarts never duplicate anything). Database rows live in the `rentify_pgdata` volume and
+uploaded images in `rentify_uploads`, so both survive restarts and rebuilds.
 
-### 2. Backend setup
+Settings in `.env` (next to `docker-compose.yml`):
+
+| Variable | Meaning |
+|---|---|
+| `JWT_SECRET` | random string of at least 32 characters (the API refuses to start otherwise). Generate: `python -c "import secrets; print(secrets.token_urlsafe(48))"` |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | the administrator the seed creates. The email must be a valid address (for example `admin@rentify.example.com`; `.local` and `.test` are rejected) |
+| `SEED_DEMO_DATA` | `true` loads the demo catalog, customers and bookings on start. With `false` nothing is seeded, and that includes the administrator, so run `docker compose exec api python seed.py` once yourself |
+
+Useful commands:
+
+```bash
+docker compose up -d --build      # start in the background (rebuild after code changes)
+docker compose logs -f api        # follow the API logs
+docker compose down               # stop (data is kept)
+docker compose down -v            # stop and DELETE the database and uploaded images
+```
+
+The browser calls the API at `http://localhost:8000`. That address is built into the web image
+(`VITE_API_BASE_URL` in `docker-compose.yml`), and the API allows only the `http://localhost:5173` origin (CORS).
+If you expose the stack on another host, change both and rebuild.
+
+Demo accounts:
+
+| Role | Login | Password |
+|---|---|---|
+| Admin | the `ADMIN_EMAIL` you set | the `ADMIN_PASSWORD` you set |
+| Customer | `priya.sharma@example.com` (also `rahul.verma@`, `ananya.iyer@`, `karthik.nair@` `example.com`) | `Customer@123` |
+
+## Running without containers (development)
+
+Handy when editing code, because the API and Vite reload instantly. **Prerequisites:** Python 3.11+, Node.js 20+,
+and PostgreSQL (the Compose database works: `docker compose up -d db`). Commands are for a Unix-style shell; on
+Windows PowerShell see the notes in the comments.
+
+### 1. Database
+
+```bash
+docker compose up -d db
+```
+
+This starts PostgreSQL 16 on port 5432 with databases `rentify` (the app) and `rentify_test` (the tests).
+Prefer your own PostgreSQL? Create two databases yourself and put their URLs in `backend/.env`.
+
+### 2. Backend
 
 ```bash
 cd backend
@@ -133,65 +182,27 @@ pip install -r requirements.txt
 cp .env.example .env                 # Windows: Copy-Item .env.example .env
 ```
 
-### 3. Environment configuration
-
-Edit `backend/.env`:
-
-| Variable | Meaning |
-|---|---|
-| `DATABASE_URL` | app database (`postgresql+psycopg://user:pass@host:5432/rentify`) |
-| `TEST_DATABASE_URL` | database used by pytest; its name **must end in `_test`** |
-| `JWT_SECRET` | random string of at least 32 characters (the app refuses to start otherwise). Generate: `python -c "import secrets; print(secrets.token_urlsafe(48))"` |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | token lifetime (default 60) |
-| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | the administrator the seed script creates. The email must be a valid address (for example `admin@rentify.example.com`; `.local` and `.test` are rejected) |
-| `FRONTEND_ORIGIN` | the only origin allowed by CORS (`http://localhost:5173`) |
-
-Never commit `.env`; it is git-ignored.
-
-### 4. Database migrations
+Edit `backend/.env`: `DATABASE_URL`, `TEST_DATABASE_URL` (its database name **must end in `_test`**), `JWT_SECRET`
+(32+ characters), `ADMIN_EMAIL`, `ADMIN_PASSWORD`, and `FRONTEND_ORIGIN` (`http://localhost:5173`). Never commit
+`.env`; it is git-ignored.
 
 ```bash
-alembic upgrade head
+alembic upgrade head                 # create the tables
+python seed.py                       # demo data; idempotent
+uvicorn app.main:app --reload        # http://localhost:8000  (docs at /docs)
 ```
 
-### 5. Seed demo data
-
-```bash
-python seed.py
-```
-
-Creates 7 categories, 20 products (placeholder images are generated locally), 40 inventory units, the
-administrator, four customers, bookings in every state (including one overdue), payments and reviews. It is
-**idempotent**: run it as often as you like, nothing is duplicated and existing data is never modified.
-
-Demo accounts:
-
-| Role | Login | Password |
-|---|---|---|
-| Admin | the `ADMIN_EMAIL` you set | the `ADMIN_PASSWORD` you set |
-| Customer | `priya.sharma@example.com` (also `rahul.verma@`, `ananya.iyer@`, `karthik.nair@` `example.com`) | `Customer@123` |
-
-### 6. Start the API
-
-```bash
-uvicorn app.main:app --reload
-```
-
-* API: http://localhost:8000
-* Swagger UI: http://localhost:8000/docs
-
-### 7. Frontend
+### 3. Frontend
 
 In a second terminal:
 
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev                          # http://localhost:5173
 ```
 
-Open http://localhost:5173. To point at a different API, copy `frontend/.env.example` to `frontend/.env` and
-change `VITE_API_BASE_URL`.
+To point at a different API, copy `frontend/.env.example` to `frontend/.env` and change `VITE_API_BASE_URL`.
 
 ## API documentation
 
@@ -217,7 +228,7 @@ Status codes: `200`/`201` success, `400` business rule, `401` not authenticated,
 
 ## Running the tests
 
-Start PostgreSQL first (`docker compose up -d`), then:
+Start PostgreSQL first (`docker compose up -d db`) and set up `backend/.env` as above, then:
 
 ```bash
 cd backend
@@ -251,10 +262,10 @@ npm run build
 * **Admin product/inventory pickers load up to 50 products per request** (they page through all of them).
 * **Images are stored on local disk** (`backend/uploads`), served by FastAPI. No CDN or object storage.
 * **No email notifications, no password reset, no rate limiting.**
-* **Docker is used only for the local database.** The API and frontend run directly on your machine; there is no
-  containerised deployment.
-* **Python version:** the spec calls for Python 3.12; the project was developed and tested on 3.11.9 and uses no
-  3.12-only features.
+* **The containers are for local use.** The web image serves the built site with Vite's static preview server and the
+  compose file uses development passwords, so it is not a production deployment.
+* **Python version:** the Docker image uses Python 3.12. Local development was done on 3.11.9; the code uses no
+  version-specific features.
 * **Not browser-tested on a phone.** The layout is responsive, but the automated browser run used a desktop viewport.
 
 ## License
