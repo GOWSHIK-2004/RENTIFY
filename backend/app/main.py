@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import get_settings
-from app.routes import admin, auth, categories, inventory, products, users
+from app.routes import admin, auth, bookings, categories, inventory, products, users
 
 API_PREFIX = "/api/v1"
 
@@ -37,6 +37,7 @@ def create_app() -> FastAPI:
         users.router,
         categories.router,
         products.router,
+        bookings.router,
         inventory.router,
         admin.router,
     ):

@@ -50,17 +50,16 @@ def create_unit(db: Session, data: InventoryCreate) -> InventoryResponse:
     return to_response(db.get(InventoryUnit, unit.id))
 
 
-def unresolved_bookings(db: Session, unit_id: int) -> list[Booking]:
+def unresolved_bookings(db: Session, unit_id: int, exclude_booking_id: int | None = None) -> list[Booking]:
     """Bookings that still depend on this unit: equipment out, or confirmed and not yet finished."""
-    return list(
-        db.scalars(
-            select(Booking).where(
-                Booking.inventory_unit_id == unit_id,
-                (Booking.status == BookingStatus.PICKED_UP)
-                | ((Booking.status == BookingStatus.CONFIRMED) & (Booking.return_date > business_today())),
-            )
-        )
+    query = select(Booking).where(
+        Booking.inventory_unit_id == unit_id,
+        (Booking.status == BookingStatus.PICKED_UP)
+        | ((Booking.status == BookingStatus.CONFIRMED) & (Booking.return_date > business_today())),
     )
+    if exclude_booking_id is not None:
+        query = query.where(Booking.id != exclude_booking_id)
+    return list(db.scalars(query))
 
 
 def update_unit(db: Session, unit_id: int, data: InventoryUpdate) -> InventoryResponse:

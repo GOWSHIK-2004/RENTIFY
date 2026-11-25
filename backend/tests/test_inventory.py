@@ -1,11 +1,9 @@
 import io
-from datetime import timedelta
 
 from PIL import Image
 
-from app.models import Booking, BookingStatus, EquipmentCondition, OperationalStatus
-from app.utils.dates import business_today
-from tests.factories import make_unit
+from app.models import BookingStatus, EquipmentCondition, OperationalStatus
+from tests.factories import make_booking, make_unit
 
 
 def test_admin_adds_and_lists_units(client, admin_headers, product):
@@ -46,35 +44,14 @@ def test_update_condition_and_status(client, admin_headers, db, product):
     assert response.json()["operational_status"] == "MAINTENANCE"
 
 
-def _add_booking(db, product, unit, customer, status, pickup_offset, return_offset):
-    today = business_today()
-    booking = Booking(
-        booking_reference=f"RNT-{status.value}-{unit.id}",
-        user_id=customer.id,
-        product_id=product.id,
-        inventory_unit_id=unit.id,
-        pickup_date=today + timedelta(days=pickup_offset),
-        return_date=today + timedelta(days=return_offset),
-        rental_days=return_offset - pickup_offset,
-        daily_price=product.daily_price,
-        total_amount=product.daily_price * (return_offset - pickup_offset),
-        status=status,
-        idempotency_key=f"key-{status.value}-{unit.id}",
-        request_fingerprint="x",
-    )
-    db.add(booking)
-    db.commit()
-    return booking
-
-
 def test_cannot_take_unit_out_of_service_with_future_confirmed_booking(client, admin_headers, db, product, customer):
     unit = make_unit(db, product, "CAM-001")
-    _add_booking(db, product, unit, customer, BookingStatus.CONFIRMED, 5, 8)
+    make_booking(db, customer, product, unit, BookingStatus.CONFIRMED, 5, 8)
 
     for change in ({"operational_status": "MAINTENANCE"}, {"operational_status": "RETIRED"}, {"condition": "DAMAGED"}):
         response = client.patch(f"/api/v1/admin/inventory/{unit.id}", json=change, headers=admin_headers)
         assert response.status_code == 409, change
-        assert "RNT-CONFIRMED" in response.json()["detail"]
+        assert "RNT-TEST" in response.json()["detail"]
 
     db.refresh(unit)
     assert unit.operational_status == OperationalStatus.ACTIVE and unit.condition == EquipmentCondition.EXCELLENT
@@ -82,7 +59,7 @@ def test_cannot_take_unit_out_of_service_with_future_confirmed_booking(client, a
 
 def test_cannot_take_unit_out_of_service_while_rented_out(client, admin_headers, db, product, customer):
     unit = make_unit(db, product, "CAM-001")
-    _add_booking(db, product, unit, customer, BookingStatus.PICKED_UP, -1, 2)
+    make_booking(db, customer, product, unit, BookingStatus.PICKED_UP, -1, 2)
 
     response = client.patch(
         f"/api/v1/admin/inventory/{unit.id}", json={"operational_status": "MAINTENANCE"}, headers=admin_headers
@@ -92,8 +69,8 @@ def test_cannot_take_unit_out_of_service_while_rented_out(client, admin_headers,
 
 def test_finished_bookings_do_not_block_status_change(client, admin_headers, db, product, customer):
     unit = make_unit(db, product, "CAM-001")
-    _add_booking(db, product, unit, customer, BookingStatus.RETURNED, -5, -2)
-    _add_booking(db, product, unit, customer, BookingStatus.CANCELLED, 5, 8)
+    make_booking(db, customer, product, unit, BookingStatus.RETURNED, -5, -2)
+    make_booking(db, customer, product, unit, BookingStatus.CANCELLED, 5, 8)
 
     response = client.patch(
         f"/api/v1/admin/inventory/{unit.id}", json={"operational_status": "RETIRED"}, headers=admin_headers
@@ -111,7 +88,7 @@ def test_booking_cannot_reference_unit_of_another_product(db, category, product,
     unit_of_other = make_unit(db, other_product, "OTH-001")
 
     with pytest.raises(IntegrityError):
-        _add_booking(db, product, unit_of_other, customer, BookingStatus.CONFIRMED, 2, 4)
+        make_booking(db, customer, product, unit_of_other, BookingStatus.CONFIRMED, 2, 4)
 
 
 def _image_bytes(image_format: str) -> bytes:

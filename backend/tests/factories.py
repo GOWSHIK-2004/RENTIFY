@@ -1,6 +1,19 @@
+import itertools
+from datetime import timedelta
 from decimal import Decimal
 
-from app.models import Category, InventoryUnit, Product, User, UserRole
+from app.models import (
+    Booking,
+    BookingStatus,
+    Category,
+    InventoryUnit,
+    Payment,
+    PaymentStatus,
+    Product,
+    User,
+    UserRole,
+)
+from app.utils.dates import business_today
 from app.utils.security import create_access_token, hash_password
 
 PASSWORD = "correct-horse-battery"
@@ -47,3 +60,33 @@ def make_unit(db, product: Product, asset_code: str, **extra) -> InventoryUnit:
     db.add(unit)
     db.commit()
     return unit
+
+
+_booking_numbers = itertools.count(1)
+
+
+def make_booking(db, user, product, unit, status=BookingStatus.CONFIRMED, pickup_offset: int = 5,
+                 return_offset: int = 8) -> Booking:
+    """Insert a booking directly. Offsets are days relative to today (Asia/Kolkata)."""
+    number = next(_booking_numbers)
+    today = business_today()
+    days = return_offset - pickup_offset
+    total = product.daily_price * days
+    booking = Booking(
+        booking_reference=f"RNT-TEST{number:04d}",
+        user_id=user.id,
+        product_id=product.id,
+        inventory_unit_id=unit.id,
+        pickup_date=today + timedelta(days=pickup_offset),
+        return_date=today + timedelta(days=return_offset),
+        rental_days=days,
+        daily_price=product.daily_price,
+        total_amount=total,
+        status=status,
+        idempotency_key=f"seed-{number}",
+        request_fingerprint="seed",
+    )
+    booking.payment = Payment(transaction_reference=f"TXN-TEST{number:04d}", amount=total, status=PaymentStatus.SUCCESS)
+    db.add(booking)
+    db.commit()
+    return booking

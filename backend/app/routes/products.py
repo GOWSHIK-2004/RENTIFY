@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 from typing import Literal
 
@@ -7,8 +8,9 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.dependencies import allow_inactive, get_optional_user, is_admin, require_admin
 from app.models.user import User
+from app.schemas.booking import QuoteResponse
 from app.schemas.product import ProductCreate, ProductListResponse, ProductResponse, ProductUpdate
-from app.services import product_service
+from app.services import booking_service, product_service
 from app.services.product_service import ProductFilters
 
 router = APIRouter(prefix="/products", tags=["products"])
@@ -41,6 +43,14 @@ def get_product(
     product_id: int, user: User | None = Depends(get_optional_user), db: Session = Depends(get_db)
 ) -> ProductResponse:
     return product_service.get_product_response(db, product_id, include_inactive=is_admin(user))
+
+
+@router.get("/{product_id}/availability", response_model=QuoteResponse)
+def check_availability(
+    product_id: int, pickup_date: date, return_date: date, db: Session = Depends(get_db)
+) -> QuoteResponse:
+    """Rental duration, daily price, total and availability for the chosen dates."""
+    return booking_service.build_quote(db, product_id, pickup_date, return_date)
 
 
 @router.post(
