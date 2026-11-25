@@ -4,6 +4,7 @@ The app's DATABASE_URL is overridden with TEST_DATABASE_URL *before* the app is
 imported, so the normal development database can never be touched by tests.
 """
 import os
+import tempfile
 
 from sqlalchemy.engine import make_url
 
@@ -13,6 +14,8 @@ _test_url = get_settings().test_database_url
 if not _test_url or not (make_url(_test_url).database or "").endswith("_test"):
     raise RuntimeError("Set TEST_DATABASE_URL to a database whose name ends in '_test'.")
 os.environ["DATABASE_URL"] = _test_url
+# Uploaded test images go to a throwaway folder, never backend/uploads.
+os.environ["UPLOAD_DIR"] = tempfile.mkdtemp(prefix="rentify_test_uploads_")
 get_settings.cache_clear()
 
 import pytest  # noqa: E402
@@ -24,10 +27,8 @@ from sqlalchemy import text  # noqa: E402
 from app.config import BACKEND_DIR  # noqa: E402
 from app.database import Base, SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
-from app.models import User, UserRole  # noqa: E402
-from app.utils.security import create_access_token, hash_password  # noqa: E402
-
-PASSWORD = "correct-horse-battery"
+from app.models import Category, Product, User, UserRole  # noqa: E402
+from tests.factories import auth_headers, make_category, make_product, make_user  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -62,15 +63,14 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-def make_user(db, email: str, role: UserRole = UserRole.CUSTOMER, name: str = "Test User") -> User:
-    user = User(full_name=name, email=email, password_hash=hash_password(PASSWORD), role=role)
-    db.add(user)
-    db.commit()
-    return user
+@pytest.fixture
+def category(db) -> Category:
+    return make_category(db)
 
 
-def auth_headers(user: User) -> dict[str, str]:
-    return {"Authorization": f"Bearer {create_access_token(user.id, user.role.value)}"}
+@pytest.fixture
+def product(db, category) -> Product:
+    return make_product(db, category)
 
 
 @pytest.fixture

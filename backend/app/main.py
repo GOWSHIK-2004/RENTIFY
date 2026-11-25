@@ -3,10 +3,11 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import get_settings
-from app.routes import auth, users
+from app.routes import admin, auth, categories, inventory, products, users
 
 API_PREFIX = "/api/v1"
 
@@ -31,8 +32,19 @@ def create_app() -> FastAPI:
     )
 
     register_error_handlers(app)
-    for router in (auth.router, users.router):
+    for router in (
+        auth.router,
+        users.router,
+        categories.router,
+        products.router,
+        inventory.router,
+        admin.router,
+    ):
         app.include_router(router, prefix=API_PREFIX)
+
+    # Product images are served straight from the uploads directory.
+    settings.upload_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads")
 
     @app.get(f"{API_PREFIX}/health", tags=["health"])
     def health() -> dict[str, str]:

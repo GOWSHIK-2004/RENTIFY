@@ -36,6 +36,27 @@ def get_current_user(
     return user
 
 
+def get_optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> User | None:
+    """For public endpoints that show more to administrators. A bad token is still a 401."""
+    if credentials is None:
+        return None
+    return get_current_user(credentials, db)
+
+
+def is_admin(user: User | None) -> bool:
+    return user is not None and user.role == UserRole.ADMIN
+
+
+def allow_inactive(include_inactive: bool = False, user: User | None = Depends(get_optional_user)) -> bool:
+    """Resolves the `include_inactive` query flag; only administrators may use it."""
+    if include_inactive and not is_admin(user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Administrator access required.")
+    return include_inactive
+
+
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
     # The role is read from the database row, not trusted from the token.
     if current_user.role != UserRole.ADMIN:

@@ -4,7 +4,7 @@ import jwt
 
 from app.config import get_settings
 from app.models import User, UserRole
-from tests.conftest import PASSWORD
+from tests.factories import PASSWORD
 
 REGISTER = {
     "full_name": "Priya Sharma",
