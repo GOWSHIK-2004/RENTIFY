@@ -1,0 +1,24 @@
+# Local PostgreSQL for development only. The FastAPI app and the React app
+# run directly on the host; only the database runs in a container.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: rentify-db
+    environment:
+      POSTGRES_USER: rentify
+      POSTGRES_PASSWORD: rentify_dev_password
+      POSTGRES_DB: rentify
+    ports:
+      - "5432:5432"
+    volumes:
+      - rentify_pgdata:/var/lib/postgresql/data
+      # Creates the separate rentify_test database on first start.
+      - ./backend/docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rentify -d rentify"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  rentify_pgdata:
