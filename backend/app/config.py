@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -13,7 +14,8 @@ class Settings(BaseSettings):
 
     database_url: str
     test_database_url: str | None = None
-    jwt_secret: str
+    # Required and long enough to be a real secret: an empty or short key would make tokens forgeable.
+    jwt_secret: str = Field(min_length=32)
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
     admin_email: str | None = None
