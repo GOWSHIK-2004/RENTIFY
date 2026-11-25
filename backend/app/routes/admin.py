@@ -4,12 +4,39 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.dependencies import require_admin
 from app.models.booking import BookingStatus
+from app.models.payment import PaymentStatus
 from app.models.user import User
+from app.schemas.admin import CustomerListResponse, DashboardResponse, PaymentListResponse
 from app.schemas.booking import BookingListResponse, BookingResponse, CancelRequest, ReturnRequest
 from app.schemas.product import ProductResponse
-from app.services import booking_service, image_service, product_service
+from app.services import admin_service, booking_service, image_service, product_service
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
+
+
+@router.get("/dashboard", response_model=DashboardResponse)
+def dashboard(db: Session = Depends(get_db)) -> DashboardResponse:
+    return admin_service.build_dashboard(db)
+
+
+@router.get("/users", response_model=CustomerListResponse)
+def list_customers(
+    search: str | None = Query(None, max_length=100),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> CustomerListResponse:
+    return admin_service.list_customers(db, search, page, page_size)
+
+
+@router.get("/payments", response_model=PaymentListResponse)
+def list_payments(
+    status_filter: PaymentStatus | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> PaymentListResponse:
+    return admin_service.list_payments(db, status_filter, page, page_size)
 
 
 @router.get("/bookings", response_model=BookingListResponse)
