@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import get_settings
+from app.routes import auth, users
 
 API_PREFIX = "/api/v1"
 
@@ -30,6 +31,8 @@ def create_app() -> FastAPI:
     )
 
     register_error_handlers(app)
+    for router in (auth.router, users.router):
+        app.include_router(router, prefix=API_PREFIX)
 
     @app.get(f"{API_PREFIX}/health", tags=["health"])
     def health() -> dict[str, str]:
